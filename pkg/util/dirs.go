@@ -3,6 +3,7 @@ package util
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func HomeDir() string {
@@ -82,7 +83,21 @@ func OrganisationsDir() (string, error) {
 	return path, nil
 }
 
-func BinaryLocation() (string, error) {
+func BackupDir() (string, error) {
+	h, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(h, "backup")
+	err = os.MkdirAll(path, DefaultWritePermissions)
+	if err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// JXBinLocation finds the JX config directory and creates a bin directory inside it if it does not already exist. Returns the JX bin path
+func JXBinLocation() (string, error) {
 	h, err := ConfigDir()
 	if err != nil {
 		return "", err
@@ -92,6 +107,18 @@ func BinaryLocation() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return path, nil
+}
+
+// JXBinaryLocation Returns the path to the currently installed JX binary.
+func JXBinaryLocation(commandInterface CommandInterface) (string, error) {
+	commandInterface.SetName("which")
+	commandInterface.SetArgs([]string{"jx"})
+	out, err := commandInterface.RunWithoutRetry()
+	if err != nil {
+		return out, err
+	}
+	path := strings.TrimSuffix(out, "/jx")
 	return path, nil
 }
 

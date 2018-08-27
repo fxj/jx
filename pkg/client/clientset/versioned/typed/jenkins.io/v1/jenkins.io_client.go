@@ -16,7 +16,9 @@ type JenkinsV1Interface interface {
 	GitServicesGetter
 	PipelineActivitiesGetter
 	ReleasesGetter
+	TeamsGetter
 	UsersGetter
+	WorkflowsGetter
 }
 
 // JenkinsV1Client is used to interact with features provided by the jenkins.io group.
@@ -44,8 +46,16 @@ func (c *JenkinsV1Client) Releases(namespace string) ReleaseInterface {
 	return newReleases(c, namespace)
 }
 
+func (c *JenkinsV1Client) Teams(namespace string) TeamInterface {
+	return newTeams(c, namespace)
+}
+
 func (c *JenkinsV1Client) Users(namespace string) UserInterface {
 	return newUsers(c, namespace)
+}
+
+func (c *JenkinsV1Client) Workflows(namespace string) WorkflowInterface {
+	return newWorkflows(c, namespace)
 }
 
 // NewForConfig creates a new JenkinsV1Client for the given config.

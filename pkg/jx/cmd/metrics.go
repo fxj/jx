@@ -104,7 +104,7 @@ func (o *MetricsOptions) Run() error {
 			}
 		}
 
-		p, err := waitForReadyPodForDeployment(client, ns, name, names, false)
+		p, err := o.waitForReadyPodForDeployment(client, ns, name, names, false)
 		if err != nil {
 			return err
 		}
@@ -146,7 +146,7 @@ func (o *MetricsOptions) Run() error {
 		args = []string{"top", "pod", pod, "--namespace", ns}
 	}
 
-	err = o.runCommand("kubectl", args...)
+	err = o.RunCommand("kubectl", args...)
 	if err != nil {
 		return err
 	}

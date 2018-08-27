@@ -135,7 +135,7 @@ func (f *factory) GetJenkinsURL(kubeClient kubernetes.Interface, ns string) (str
 		// lets try the real environment
 		realNS, _, err := kube.GetDevNamespace(client, ns)
 		if err != nil {
-			return "", errors.Wrapf(err, "failed to get the dev namespace from '%s' namespace")
+			return "", errors.Wrapf(err, "failed to get the dev namespace from '%s' namespace", ns)
 		}
 		if realNS != ns {
 			url, err = kube.FindServiceURL(client, realNS, kube.ServiceJenkins)
@@ -250,7 +250,7 @@ func (f *factory) CreateAddonAuthConfigService(secrets *corev1.SecretList) (auth
 		if err != nil {
 			return authConfigSvc, err
 		}
-		f.AuthMergePipelineSecrets(config, secrets, kube.ValueKindChat, f.IsInCDPIpeline())
+		f.AuthMergePipelineSecrets(config, secrets, kube.ValueKindAddon, f.IsInCDPIpeline())
 	}
 	return authConfigSvc, err
 }

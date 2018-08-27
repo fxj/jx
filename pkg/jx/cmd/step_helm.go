@@ -11,15 +11,23 @@ import (
 
 	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/jenkins-x/jx/pkg/util"
+	"os"
 )
 
-const ()
+const (
+	PROW_JOB_ID   = "PROW_JOB_ID"
+	REPO_OWNER    = "REPO_OWNER"
+	REPO_NAME     = "REPO_NAME"
+	PULL_PULL_SHA = "PULL_PULL_SHA"
+)
 
 // StepHelmOptions contains the command line flags
 type StepHelmOptions struct {
 	StepOptions
 
-	Dir string
+	Dir         string
+	https       bool
+	GitProvider string
 }
 
 // NewCmdStepHelm Steps a command object for the "step" command
@@ -57,6 +65,8 @@ func (o *StepHelmOptions) Run() error {
 
 func (o *StepHelmOptions) addStepHelmFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVarP(&o.Dir, "dir", "d", ".", "The directory containing the helm chart to apply")
+	cmd.Flags().BoolVarP(&o.https, "clone-https", "", true, "Clone the environment git repo over https rather than ssh which uses `git@foo/bar.git`")
+	cmd.Flags().StringVarP(&o.GitProvider, "git-provider", "", "github.com", "The Git provider for the environment Git repository")
 }
 
 func (o *StepHelmOptions) findStagingRepoIds() ([]string, error) {
@@ -103,7 +113,7 @@ func (o *StepHelmOptions) dropRepository(repoId string, message string) error {
 		return nil
 	}
 	log.Infof("Dropping helm release repository %s\n", util.ColorInfo(repoId))
-	err := o.runCommand("mvn",
+	err := o.RunCommand("mvn",
 		"org.sonatype.plugins:helm-staging-maven-plugin:1.6.5:rc-drop",
 		"-DserverId=oss-sonatype-staging",
 		"-DhelmUrl=https://oss.sonatype.org",
@@ -123,7 +133,7 @@ func (o *StepHelmOptions) releaseRepository(repoId string) error {
 	}
 	log.Infof("Releasing helm release repository %s\n", util.ColorInfo(repoId))
 	options := o
-	err := options.runCommand("mvn",
+	err := options.RunCommand("mvn",
 		"org.sonatype.plugins:helm-staging-maven-plugin:1.6.5:rc-release",
 		"-DserverId=oss-sonatype-staging",
 		"-DhelmUrl=https://oss.sonatype.org",
@@ -135,4 +145,79 @@ func (o *StepHelmOptions) releaseRepository(repoId string) error {
 		log.Infof("Released repository %s\n", util.ColorInfo(repoId))
 	}
 	return err
+}
+
+func (o *StepHelmOptions) cloneProwPullRequest(dir, gitProvider string) (string, error) {
+
+	stepOpts := StepOptions{
+		CommonOptions: o.CommonOptions,
+	}
+	gitOpts := StepGitCredentialsOptions{
+		StepOptions: stepOpts,
+	}
+
+	err := gitOpts.Run()
+	if err != nil {
+		return "", fmt.Errorf("failed to create git credentials file: %v", err)
+	}
+
+	org := os.Getenv(REPO_OWNER)
+	if org == "" {
+		return "", fmt.Errorf("no %s env var found", REPO_OWNER)
+	}
+
+	repo := os.Getenv(REPO_NAME)
+	if org == "" {
+		return "", fmt.Errorf("no %s env var found", REPO_NAME)
+	}
+
+	var gitURL string
+	if o.https {
+		gitURL = fmt.Sprintf("https://%s/%s/%s.git", gitProvider, org, repo)
+	} else {
+		gitURL = fmt.Sprintf("git@%s:%s/%s.git", gitProvider, org, repo)
+	}
+
+	err = o.RunCommand("git", "clone", gitURL)
+	if err != nil {
+		return "", err
+	}
+
+	prCommit := os.Getenv(PULL_PULL_SHA)
+	if org == "" {
+		return "", fmt.Errorf("no %s env var found", PULL_PULL_SHA)
+	}
+
+	if dir != "" {
+		dir = filepath.Join(dir, repo)
+	} else {
+		pwd, err := os.Getwd()
+		if err != nil {
+			return "", err
+		}
+		dir = filepath.Join(pwd, repo)
+	}
+
+	err = o.runCommandFromDir(dir, "git", "checkout", prCommit)
+	if err != nil {
+		return "", err
+	}
+
+	err = o.RunCommand("cd", repo)
+	if err != nil {
+		return "", err
+	}
+
+	err = o.runCommandFromDir(dir, "git", "checkout", "-b", "pr")
+	if err != nil {
+		return "", err
+	}
+	exists, err := util.FileExists(filepath.Join(dir, "env"))
+	if err != nil {
+		return "", err
+	}
+	if exists {
+		dir = filepath.Join(dir, "env")
+	}
+	return dir, nil
 }

@@ -297,10 +297,14 @@ func CreateEnvironmentSurvey(out io.Writer, batchMode bool, authConfigSvc auth.A
 			if batchMode {
 				createRepo = true
 			} else {
+				defaultBranch := data.Spec.Source.Ref
+				if defaultBranch == "" {
+					defaultBranch = "master"
+				}
 				q := &survey.Input{
-					Message: "Git Ref for the Environment source code:",
-					Default: data.Spec.Source.Ref,
-					Help:    "The git clone Ref for the Environment's Helm charts source code and custom configuration",
+					Message: "Git branch for the Environment source code:",
+					Default: defaultBranch,
+					Help:    "The git release branch in the Environments git repository used to store Helm charts source code and custom configuration",
 				}
 				err := survey.AskOne(q, &data.Spec.Source.Ref, nil)
 				if err != nil {
@@ -362,7 +366,7 @@ func createEnvironmentGitRepo(out io.Writer, batchMode bool, authConfigSvc auth.
 		if err != nil {
 			return "", nil, err
 		}
-		err = modifyNamespace(out, dir, env, git)
+		err = ModifyNamespace(out, dir, env, git)
 		if err != nil {
 			return "", nil, err
 		}
@@ -415,7 +419,7 @@ func createEnvironmentGitRepo(out io.Writer, batchMode bool, authConfigSvc auth.
 				if err != nil {
 					return "", nil, err
 				}
-				err = modifyNamespace(out, dir, env, git)
+				err = ModifyNamespace(out, dir, env, git)
 				if err != nil {
 					return "", nil, err
 				}
@@ -459,7 +463,7 @@ func createEnvironmentGitRepo(out io.Writer, batchMode bool, authConfigSvc auth.
 			if err != nil {
 				return "", nil, err
 			}
-			err = modifyNamespace(out, dir, env, git)
+			err = ModifyNamespace(out, dir, env, git)
 			if err != nil {
 				return "", nil, err
 			}
@@ -477,7 +481,8 @@ func createEnvironmentGitRepo(out io.Writer, batchMode bool, authConfigSvc auth.
 	return repo.CloneURL, provider, nil
 }
 
-func modifyNamespace(out io.Writer, dir string, env *v1.Environment, git gits.Gitter) error {
+// ModifyNamespace modifies the namespace
+func ModifyNamespace(out io.Writer, dir string, env *v1.Environment, git gits.Gitter) error {
 	ns := env.Spec.Namespace
 	if ns == "" {
 		return fmt.Errorf("No Namespace is defined for Environment %s", env.Name)
@@ -498,7 +503,7 @@ func modifyNamespace(out io.Writer, dir string, env *v1.Environment, git gits.Gi
 		return err
 	}
 	lines := strings.Split(string(input), "\n")
-	err = replaceMakeVariable(lines, "NAMESPACE", "\""+ns+"\"")
+	err = ReplaceMakeVariable(lines, "NAMESPACE", "\""+ns+"\"")
 	if err != nil {
 		return err
 	}
@@ -588,7 +593,8 @@ func addValues(out io.Writer, dir string, values config.HelmValuesConfig, git gi
 	return nil
 }
 
-func replaceMakeVariable(lines []string, name string, value string) error {
+// ReplaceMakeVariable needs a description
+func ReplaceMakeVariable(lines []string, name string, value string) error {
 	re, err := regexp.Compile(name + "\\s*:?=\\s*(.*)")
 	if err != nil {
 		return err
@@ -819,6 +825,14 @@ func NewPermanentEnvironment(name string) *v1.Environment {
 			Kind:              v1.EnvironmentKindTypePermanent,
 		},
 	}
+}
+
+// NewPermanentEnvironment creates a new permanent environment for testing
+func NewPermanentEnvironmentWithGit(name string, gitUrl string) *v1.Environment {
+	env := NewPermanentEnvironment(name)
+	env.Spec.Source.URL = gitUrl
+	env.Spec.Source.Ref = "master"
+	return env
 }
 
 // NewPreviewEnvironment creates a new preview environment for testing

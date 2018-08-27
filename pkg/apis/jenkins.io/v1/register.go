@@ -6,7 +6,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	jenkinsio "github.com/jenkins-x/jx/pkg/apis/jenkins.io"
+	"github.com/jenkins-x/jx/pkg/apis/jenkins.io"
 )
 
 // SchemeGroupVersion is group version used to register these objects
@@ -49,8 +49,12 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&PipelineActivityList{},
 		&Release{},
 		&ReleaseList{},
+		&Team{},
+		&TeamList{},
 		&User{},
 		&UserList{},
+		&Workflow{},
+		&WorkflowList{},
 	)
 	metav1.AddToGroupVersion(scheme, SchemeGroupVersion)
 	return nil

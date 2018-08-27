@@ -273,7 +273,7 @@ func (o *CreateClusterAWSOptions) Run() error {
 
 	log.Blank()
 	log.Infoln("Validating kops cluster state...")
-	err = o.runCommand("kops", "validate", "cluster")
+	err = o.RunCommand("kops", "validate", "cluster")
 	if err != nil {
 		return fmt.Errorf("Failed to successfully validate kops cluster state: %s\n", err)
 	}
@@ -287,7 +287,7 @@ func (o *CreateClusterAWSOptions) Run() error {
 func (o *CreateClusterAWSOptions) waitForClusterJson(clusterName string) (string, error) {
 	jsonOutput := ""
 	f := func() error {
-		text, err := o.getCommandOutput("", "kops", "get", "cluster", clusterName, "-ojson")
+		text, err := o.getCommandOutput("", "kops", "get", "cluster", "--name", clusterName, "-o", "json")
 		if err != nil {
 			return err
 		}

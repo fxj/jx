@@ -16,8 +16,6 @@ const (
 	// ChartAnchore the default chart for the Anchore plugin
 	ChartPipelineEvent = "jenkins-x/pipeline-events-addon"
 
-	ChartProw = "jenkins-x/prow"
-
 	// ChartGitea the default name of the gitea chart
 	ChartGitea = "jenkins-x/gitea"
 
@@ -65,6 +63,9 @@ const (
 
 	// ConfigMapExposecontroller the name of the ConfigMap with the Exposecontroller configuration
 	ConfigMapExposecontroller = "exposecontroller"
+
+	// ConfigMapIngressConfig the new name of the ConfigMap with the Exposecontroller configuration
+	ConfigMapIngressConfig = "ingress-config"
 
 	// ConfigMapJenkinsX the name of the ConfigMap with the Jenkins configuration
 	ConfigMapJenkinsX = "jenkins"

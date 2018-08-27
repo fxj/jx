@@ -61,10 +61,11 @@ func EnsureDevEnvironmentSetup(jxClient versioned.Interface, ns string) (*v1.Env
 					UseGitOPs:           true,
 					AskOnCreate:         false,
 					QuickstartLocations: DefaultQuickstartLocations,
+					PromotionEngine:     v1.PromotionEngineJenkins,
 				},
 			},
 		}
-		_, err = jxClient.JenkinsV1().Environments(ns).Create(env)
+		env, err = jxClient.JenkinsV1().Environments(ns).Create(env)
 		if err != nil {
 			return nil, err
 		}
@@ -101,17 +102,30 @@ func EnsureEditEnvironmentSetup(kubeClient kubernetes.Interface, jxClient versio
 		return nil, err
 	}
 
-	cm, err := kubeClient.CoreV1().ConfigMaps(ns).Get(ConfigMapExposecontroller, metav1.GetOptions{})
+	cm, err := kubeClient.CoreV1().ConfigMaps(ns).Get(ConfigMapIngressConfig, metav1.GetOptions{})
 	if err != nil {
-		return nil, err
-	}
-	oldCm, err := kubeClient.CoreV1().ConfigMaps(editNS).Get(ConfigMapExposecontroller, metav1.GetOptions{})
-	if oldCm == nil || err != nil {
-		cm.Namespace = editNS
-		cm.ResourceVersion = ""
-		_, err := kubeClient.CoreV1().ConfigMaps(editNS).Create(cm)
+		cm, err := kubeClient.CoreV1().ConfigMaps(ns).Get(ConfigMapExposecontroller, metav1.GetOptions{})
 		if err != nil {
 			return nil, err
+		}
+		oldCm, err := kubeClient.CoreV1().ConfigMaps(editNS).Get(ConfigMapExposecontroller, metav1.GetOptions{})
+		if oldCm == nil || err != nil {
+			cm.Namespace = editNS
+			cm.ResourceVersion = ""
+			_, err := kubeClient.CoreV1().ConfigMaps(editNS).Create(cm)
+			if err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		oldCm, err := kubeClient.CoreV1().ConfigMaps(editNS).Get(ConfigMapIngressConfig, metav1.GetOptions{})
+		if oldCm == nil || err != nil {
+			cm.Namespace = editNS
+			cm.ResourceVersion = ""
+			_, err := kubeClient.CoreV1().ConfigMaps(editNS).Create(cm)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
