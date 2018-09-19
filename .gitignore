@@ -23,10 +23,15 @@ debug
 
 .vscode/
 
-build/
+/build/
 release/
 scanning/
 .updatebot-repos/
 .terraform/
 myvalues.yaml
 myvalues.yml
+
+# vim swap files
+*.swp
+
+

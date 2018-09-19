@@ -51,6 +51,7 @@ type InitFlags struct {
 	Helm3                      bool
 	HelmBin                    string
 	RecreateExistingDraftRepos bool
+	Tiller                     bool
 	GlobalTiller               bool
 	SkipIngress                bool
 	SkipTiller                 bool
@@ -126,15 +127,20 @@ func (options *InitOptions) addInitFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVarP(&options.Flags.HelmClient, "helm-client-only", "", false, "Only install helm client")
 	cmd.Flags().BoolVarP(&options.Flags.RecreateExistingDraftRepos, "recreate-existing-draft-repos", "", false, "Delete existing helm repos used by Jenkins X under ~/draft/packs")
 	cmd.Flags().BoolVarP(&options.Flags.GlobalTiller, "global-tiller", "", true, "Whether or not to use a cluster global tiller")
+	cmd.Flags().BoolVarP(&options.Flags.Tiller, "tiller", "", true, "Whether or not to use tiller at all. If no tiller is enabled then its ran as a local process instead")
 	cmd.Flags().BoolVarP(&options.Flags.SkipIngress, "skip-ingress", "", false, "Dont install an ingress controller")
-	cmd.Flags().BoolVarP(&options.Flags.SkipTiller, "skip-tiller", "", false, "Dont install a Helms Tiller service")
+	cmd.Flags().BoolVarP(&options.Flags.SkipTiller, "skip-tiller", "", false, "Don't install a Helms Tiller service")
 	cmd.Flags().BoolVarP(&options.Flags.Helm3, "helm3", "", false, "Use helm3 to install Jenkins X which does not use Tiller")
 	cmd.Flags().BoolVarP(&options.Flags.OnPremise, "on-premise", "", false, "If installing on an on premise cluster then lets default the 'external-ip' to be the kubernetes master IP address")
 }
 
 func (o *InitOptions) Run() error {
-
 	var err error
+	if !o.Flags.Tiller {
+		o.Flags.HelmClient = true
+		o.Flags.SkipTiller = true
+		o.Flags.GlobalTiller = false
+	}
 	o.Flags.Provider, err = o.GetCloudProvider(o.Flags.Provider)
 	if err != nil {
 		return err
@@ -238,10 +244,14 @@ func (o *InitOptions) initHelm() error {
 	var err error
 
 	if o.Flags.Helm3 {
+		log.Infof("Using %s\n", util.ColorInfo("helm3"))
 		o.Flags.SkipTiller = true
+	} else {
+		log.Infof("Using %s\n", util.ColorInfo("helm2"))
 	}
 
 	if !o.Flags.SkipTiller {
+		log.Infof("Configuring %s\n", util.ColorInfo("tiller"))
 		client, curNs, err := o.KubeClient()
 		if err != nil {
 			return err
@@ -360,6 +370,8 @@ func (o *InitOptions) initHelm() error {
 		if err != nil {
 			return err
 		}
+	} else {
+		log.Infof("Skipping %s\n", util.ColorInfo("tiller"))
 	}
 
 	if o.Flags.Helm3 {
@@ -535,6 +547,7 @@ controller:
 
 		i := 0
 		for {
+			log.Infof("Installing using helm binary: %s\n", util.ColorInfo(o.Helm().HelmBinary()))
 			err = o.Helm().InstallChart("stable/nginx-ingress", "jxing", ingressNamespace, nil, nil, values, valuesFiles)
 			if err != nil {
 				if i >= 3 {

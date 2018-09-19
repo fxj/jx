@@ -5,9 +5,9 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
-	"os/user"
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 
@@ -18,8 +18,9 @@ import (
 )
 
 const (
-	DefaultShell = "/bin/sh"
-	ShellsFile   = "/etc/shells"
+	DefaultShell      = "/bin/sh"
+	ShellsFile        = "/etc/shells"
+	defaultRshCommand = "bash"
 )
 
 type RshOptions struct {
@@ -31,6 +32,7 @@ type RshOptions struct {
 	Executable string
 	ExecCmd    string
 	DevPod     bool
+	Username   string
 
 	stopCh chan struct{}
 }
@@ -82,7 +84,8 @@ func NewCmdRsh(f Factory, out io.Writer, errOut io.Writer) *cobra.Command {
 	cmd.Flags().StringVarP(&options.Namespace, "pod", "p", "", "the pod name to use")
 	cmd.Flags().StringVarP(&options.Executable, "shell", "s", "", "Path to the shell command")
 	cmd.Flags().BoolVarP(&options.DevPod, "devpod", "d", false, "Connect to a DevPod")
-	cmd.Flags().StringVarP(&options.ExecCmd, "execute", "e", "bash", "Execute this command on the remote container")
+	cmd.Flags().StringVarP(&options.ExecCmd, "execute", "e", defaultRshCommand, "Execute this command on the remote container")
+	cmd.Flags().StringVarP(&options.Username, "username", "", "", "The username to create the DevPod. If not specified defaults to the current operating system user or $USER'")
 
 	return cmd
 }
@@ -100,17 +103,20 @@ func (o *RshOptions) Run() error {
 		ns = curNs
 	}
 
+	if o.ExecCmd == "" {
+		o.ExecCmd = defaultRshCommand
+	}
 	filter := ""
 	names := []string{}
 	podsName := "Pods"
 	pods := map[string]*corev1.Pod{}
 	if o.DevPod {
 		podsName = "DevPods"
-		u, err := user.Current()
+		userName, err := o.getUsername(o.Username)
 		if err != nil {
 			return err
 		}
-		names, pods, err = kube.GetDevPodNames(client, ns, u.Username)
+		names, pods, err = kube.GetDevPodNames(client, ns, userName)
 		if err != nil {
 			return err
 		}
@@ -210,6 +216,9 @@ func (o *RshOptions) Run() error {
 		a = append(a, args[1:]...)
 	} else if len(commandArguments) > 0 {
 		a = append(a, commandArguments...)
+	}
+	if o.Verbose {
+		log.Infof("Running command: kubectl %s\n", strings.Join(a, " "))
 	}
 	return o.runCommandInteractive(true, "kubectl", a...)
 }

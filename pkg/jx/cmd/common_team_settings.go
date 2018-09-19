@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os/user"
 	"reflect"
 
 	"github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
@@ -16,8 +17,9 @@ type BranchPatterns struct {
 }
 
 const (
-	defaultBuildPackRef = "2.1"
-	defaultHelmBin      = "helm"
+	defaultBuildPackRef     = "2.1"
+	defaultProwBuildPackRef = "prow"
+	defaultHelmBin          = "helm"
 )
 
 // TeamSettings returns the team settings
@@ -72,19 +74,19 @@ func (o *CommonOptions) TeamBranchPatterns() (*BranchPatterns, error) {
 	}, nil
 }
 
-// TeamHelmBin returns the helm binary used for a team
-func (o *CommonOptions) TeamHelmBin() (string, error) {
+// TeamHelmBin returns the helm binary used for a team and whether a remote tiller is disabled
+func (o *CommonOptions) TeamHelmBin() (string, bool, error) {
 	helmBin := defaultHelmBin
 	teamSettings, err := o.TeamSettings()
 	if err != nil {
-		return helmBin, err
+		return helmBin, false, err
 	}
 
 	helmBin = teamSettings.HelmBinary
 	if helmBin == "" {
 		helmBin = defaultHelmBin
 	}
-	return helmBin, nil
+	return helmBin, teamSettings.NoTiller, nil
 }
 
 // ModifyDevEnvironment modifies the development environment settings
@@ -144,6 +146,18 @@ func (o *CommonOptions) registerUserCRD() error {
 		return err
 	}
 	err = kube.RegisterUserCRD(apisClient)
+	if err != nil {
+		return errors.Wrap(err, "failed to register the User CRD")
+	}
+	return nil
+}
+
+func (o *CommonOptions) registerEnvironmentRoleBindingCRD() error {
+	apisClient, err := o.Factory.CreateApiExtensionsClient()
+	if err != nil {
+		return err
+	}
+	err = kube.RegisterEnvironmentRoleBindingCRD(apisClient)
 	if err != nil {
 		return errors.Wrap(err, "failed to register the User CRD")
 	}
@@ -282,4 +296,15 @@ func (o *CommonOptions) ModifyUser(userName string, callback func(env *v1.User) 
 		}
 	}
 	return nil
+}
+
+func (o *CommonOptions) getUsername(userName string) (string, error) {
+	if userName == "" {
+		u, err := user.Current()
+		if err != nil {
+			return userName, errors.Wrap(err, "Could not find the current user name. Please pass it in explicitly via the argument '--username'")
+		}
+		userName = u.Username
+	}
+	return userName, nil
 }

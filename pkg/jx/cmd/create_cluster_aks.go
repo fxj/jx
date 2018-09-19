@@ -31,6 +31,9 @@ type CreateClusterAKSFlags struct {
 	NodeCount                 string
 	KubeVersion               string
 	PathToPublicKey           string
+	ClientSecret              string
+	ServicePrincipal          string
+	Subscription              string
 	SkipLogin                 bool
 	SkipProviderRegistration  bool
 	SkipResourceGroupCreation bool
@@ -83,16 +86,19 @@ func NewCmdCreateClusterAKS(f Factory, out io.Writer, errOut io.Writer) *cobra.C
 
 	options.addCreateClusterFlags(cmd)
 
-	cmd.Flags().StringVarP(&options.Flags.UserName, "user-name", "u", "", "user name")
-	cmd.Flags().StringVarP(&options.Flags.Password, "password", "p", "", "password")
+	cmd.Flags().StringVarP(&options.Flags.UserName, "user-name", "u", "", "Azure user name")
+	cmd.Flags().StringVarP(&options.Flags.Password, "password", "p", "", "Azure password")
 	cmd.Flags().StringVarP(&options.Flags.ResourceName, "resource-group-name", "n", "", "Name of the resource group")
 	cmd.Flags().StringVarP(&options.Flags.ClusterName, "cluster-name", "c", "", "Name of the cluster")
-	cmd.Flags().StringVarP(&options.Flags.Location, "location", "l", "", "location to run cluster in")
+	cmd.Flags().StringVarP(&options.Flags.Location, "location", "l", "", "Location to run cluster in")
 	cmd.Flags().StringVarP(&options.Flags.NodeVMSize, "node-vm-size", "s", "", "Size of Virtual Machines to create as Kubernetes nodes")
 	cmd.Flags().StringVarP(&options.Flags.NodeOSDiskSize, "disk-size", "", "", "Size in GB of the OS disk for each node in the node pool.")
-	cmd.Flags().StringVarP(&options.Flags.NodeCount, "nodes", "o", "", "node count")
+	cmd.Flags().StringVarP(&options.Flags.NodeCount, "nodes", "o", "", "Number of node")
 	cmd.Flags().StringVarP(&options.Flags.KubeVersion, optionKubernetesVersion, "v", "", "Version of Kubernetes to use for creating the cluster, such as '1.8.11' or '1.9.6'.  Values from: `az aks get-versions`.")
-	cmd.Flags().StringVarP(&options.Flags.PathToPublicKey, "path-To-public-rsa-key", "k", "", "pathToPublicRSAKey")
+	cmd.Flags().StringVarP(&options.Flags.PathToPublicKey, "path-To-public-rsa-key", "k", "", "Path to public RSA key")
+	cmd.Flags().StringVarP(&options.Flags.ClientSecret, "client-secret", "", "", "Azure AD client secret to use an existing SP")
+	cmd.Flags().StringVarP(&options.Flags.ServicePrincipal, "service-principal", "", "", "Azure AD service principal to use an existing SP")
+	cmd.Flags().StringVarP(&options.Flags.Subscription, "subscription", "", "", "Azure subscription to be used if not default one")
 	cmd.Flags().BoolVarP(&options.Flags.SkipLogin, "skip-login", "", false, "Skip login if already logged in using `az login`")
 	cmd.Flags().BoolVarP(&options.Flags.SkipProviderRegistration, "skip-provider-registration", "", false, "Skip provider registration")
 	cmd.Flags().BoolVarP(&options.Flags.SkipResourceGroupCreation, "skip-resource-group-creation", "", false, "Skip resource group creation")
@@ -182,6 +188,9 @@ func (o *CreateClusterAKSOptions) createClusterAKS() error {
 	userName := o.Flags.UserName
 	password := o.Flags.Password
 
+	clientSecret := o.Flags.ClientSecret
+	servicePrincipal := o.Flags.ServicePrincipal
+
 	var err error
 	if !o.Flags.SkipLogin {
 		//First login
@@ -227,6 +236,16 @@ func (o *CreateClusterAKSOptions) createClusterAKS() error {
 		}
 	}
 
+	subscription := o.Flags.Subscription
+
+	if subscription != "" {
+		log.Info("Changing subscription...\n")
+		err = o.runCommandVerbose("az", "account", "set", "--subscription", subscription)
+
+		if err != nil {
+			return err
+		}
+	}
 	createCluster := []string{"aks", "create", "-g", resourceName, "-n", clusterName}
 
 	if o.Flags.KubeVersion != "" {
@@ -249,6 +268,14 @@ func (o *CreateClusterAKSOptions) createClusterAKS() error {
 		createCluster = append(createCluster, "--ssh-key-value", pathToPublicKey)
 	} else {
 		createCluster = append(createCluster, "--generate-ssh-keys")
+	}
+
+	if clientSecret != "" {
+		createCluster = append(createCluster, "--client-secret", clientSecret)
+	}
+
+	if servicePrincipal != "" {
+		createCluster = append(createCluster, "--service-principal", servicePrincipal)
 	}
 
 	if o.Flags.Tags != "" {
