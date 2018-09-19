@@ -9,6 +9,7 @@ import (
 
 	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/pkg/errors"
+	"github.com/jenkins-x/jx/pkg/log"
 )
 
 // HelmCLI implements common helm actions based on helm CLI
@@ -17,11 +18,12 @@ type HelmCLI struct {
 	BinVersion Version
 	CWD        string
 	Runner     *util.Command
+	Debug bool
 }
 
 // NewHelmCLI creates a new HelmCLI instance configured to used the provided helm CLI in
 // the given current working directory
-func NewHelmCLI(binary string, version Version, cwd string, args ...string) *HelmCLI {
+func NewHelmCLI(binary string, version Version, cwd string, debug bool, args ...string) *HelmCLI {
 	a := []string{}
 	for _, x := range args {
 		y := strings.Split(x, " ")
@@ -41,6 +43,17 @@ func NewHelmCLI(binary string, version Version, cwd string, args ...string) *Hel
 		Runner:     runner,
 	}
 	return cli
+}
+
+// SetHost is used to point at a locally running tiller
+func (h *HelmCLI) SetHost(tillerAddress string) {
+	if h.Runner.Env == nil {
+		h.Runner.Env = map[string]string{}
+	}
+	if h.Debug {
+		log.Infof("Setting tiller address to %s\n", util.ColorInfo(tillerAddress))
+	}
+	h.Runner.Env["HELM_HOST"] = tillerAddress
 }
 
 // SetCWD configures the common working directory of helm CLI
@@ -89,6 +102,11 @@ func (h *HelmCLI) Init(clientOnly bool, serviceAccount string, tillerNamespace s
 	if upgrade {
 		args = append(args, "--upgrade", "--wait", "--force-upgrade")
 	}
+
+	if h.Debug {
+		log.Infof("Initialising Helm '%s'\n", util.ColorInfo(strings.Join(args, " ")))
+	}
+
 	return h.runHelm(args...)
 }
 
@@ -221,6 +239,11 @@ func (h *HelmCLI) InstallChart(chart string, releaseName string, ns string, vers
 	for _, valueFile := range valueFiles {
 		args = append(args, "--values", valueFile)
 	}
+
+	if h.Debug {
+		log.Infof("Installing Chart '%s'\n", util.ColorInfo(strings.Join(args, " ")))
+	}
+
 	return h.runHelm(args...)
 }
 
@@ -252,6 +275,11 @@ func (h *HelmCLI) UpgradeChart(chart string, releaseName string, ns string, vers
 		args = append(args, "--values", valueFile)
 	}
 	args = append(args, releaseName, chart)
+
+	if h.Debug {
+		log.Infof("Upgrading Chart '%s'\n", util.ColorInfo(strings.Join(args, " ")))
+	}
+
 	return h.runHelm(args...)
 }
 
@@ -279,12 +307,14 @@ func (h *HelmCLI) SearchChartVersions(chart string) ([]string, error) {
 	}
 	versions := []string{}
 	lines := strings.Split(strings.TrimSpace(output), "\n")
-	for _, line := range lines[1:] {
-		fields := strings.Fields(line)
-		if len(fields) > 1 {
-			v := fields[1]
-			if v != "" {
-				versions = append(versions, v)
+	if len(lines) > 1 {
+		for _, line := range lines[1:] {
+			fields := strings.Fields(line)
+			if len(fields) > 1 {
+				v := fields[1]
+				if v != "" {
+					versions = append(versions, v)
+				}
 			}
 		}
 	}
@@ -350,6 +380,11 @@ func (h *HelmCLI) StatusReleases() (map[string]string, error) {
 // Lint lints the helm chart from the current working directory and returns the warnings in the output
 func (h *HelmCLI) Lint() (string, error) {
 	return h.runHelmWithOutput("lint")
+}
+
+// Env returns the environment variables for the helmer
+func (h *HelmCLI) Env() map[string]string {
+	return h.Runner.Env
 }
 
 // Version executes the helm version command and returns its output

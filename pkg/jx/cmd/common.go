@@ -214,7 +214,7 @@ func (o *CommonOptions) JXClientAndDevNamespace() (versioned.Interface, string, 
 
 func (o *CommonOptions) JenkinsClient() (*gojenkins.Jenkins, error) {
 	if o.jenkinsClient == nil {
-		kubeClient, ns, err := o.KubeClient()
+		kubeClient, ns, err := o.KubeClientAndDevNamespace()
 		if err != nil {
 			return nil, err
 		}
@@ -246,11 +246,16 @@ func (o *CommonOptions) Git() gits.Gitter {
 
 func (o *CommonOptions) Helm() helm.Helmer {
 	if o.helm == nil {
-		helmBinary, err := o.TeamHelmBin()
+		helmBinary, noTiller, err := o.TeamHelmBin()
 		if err != nil {
 			helmBinary = defaultHelmBin
 		}
-		o.helm = helm.NewHelmCLI(helmBinary, helm.V2, "")
+		log.Infof("Using helmBinary %s, with noTiller %s\n", util.ColorInfo(helmBinary), util.ColorInfo(noTiller))
+		o.helm = helm.NewHelmCLI(helmBinary, helm.V2, "", o.Verbose)
+		if noTiller {
+			o.helm.SetHost(o.tillerAddress())
+			o.startLocalTillerIfNotRunning()
+		}
 	}
 	return o.helm
 }
@@ -767,4 +772,36 @@ func (o *CommonOptions) copyCertmanagerResources(targetNamespace string, ic kube
 	}
 
 	return nil
+}
+
+func (o *CommonOptions) getJobName() string {
+	owner := os.Getenv("REPO_OWNER")
+	repo := os.Getenv("REPO_NAME")
+	branch := os.Getenv("BRANCH_NAME")
+
+	if owner != "" && repo != "" && branch != "" {
+		return fmt.Sprintf("%s/%s/%s", owner, repo, branch)
+	}
+
+	job := os.Getenv("JOB_NAME")
+	if job != "" {
+		return job
+	}
+	return ""
+}
+
+func (o *CommonOptions) getBuildNumber() string {
+	buildNumber := os.Getenv("JX_BUILD_NUMBER")
+	if buildNumber != "" {
+		return buildNumber
+	}
+	buildNumber = os.Getenv("BUILD_NUMBER")
+	if buildNumber != "" {
+		return buildNumber
+	}
+	buildID := os.Getenv("BUILD_ID")
+	if buildID != "" {
+		return buildID
+	}
+	return ""
 }
