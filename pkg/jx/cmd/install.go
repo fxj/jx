@@ -26,6 +26,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"gopkg.in/AlecAivazis/survey.v1"
+	"gopkg.in/AlecAivazis/survey.v1/terminal"
 	"gopkg.in/src-d/go-git.v4"
 	core_v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -119,9 +120,9 @@ var (
 
 // NewCmdInstall creates a command object for the generic "install" action, which
 // installs the jenkins-x platform on a kubernetes cluster.
-func NewCmdInstall(f Factory, out io.Writer, errOut io.Writer) *cobra.Command {
+func NewCmdInstall(f Factory, in terminal.FileReader, out terminal.FileWriter, errOut io.Writer) *cobra.Command {
 
-	options := createInstallOptions(f, out, errOut)
+	options := CreateInstallOptions(f, in, out, errOut)
 
 	cmd := &cobra.Command{
 		Use:     "install [flags]",
@@ -144,9 +145,11 @@ func NewCmdInstall(f Factory, out io.Writer, errOut io.Writer) *cobra.Command {
 	return cmd
 }
 
-func createInstallOptions(f Factory, out io.Writer, errOut io.Writer) InstallOptions {
+// CreateInstallOptions creates the options for jx install
+func CreateInstallOptions(f Factory, in terminal.FileReader, out terminal.FileWriter, errOut io.Writer) InstallOptions {
 	commonOptions := CommonOptions{
 		Factory: f,
+		In:      in,
 		Out:     out,
 		Err:     errOut,
 	}
@@ -156,6 +159,7 @@ func createInstallOptions(f Factory, out io.Writer, errOut io.Writer) InstallOpt
 			CreateOptions: CreateOptions{
 				CommonOptions: CommonOptions{
 					Factory:  f,
+					In:       in,
 					Out:      out,
 					Err:      errOut,
 					Headless: true,
@@ -179,6 +183,7 @@ func createInstallOptions(f Factory, out io.Writer, errOut io.Writer) InstallOpt
 			CreateOptions: CreateOptions{
 				CommonOptions: CommonOptions{
 					Factory:   f,
+					In:        in,
 					Out:       out,
 					Err:       errOut,
 					Headless:  true,
@@ -237,6 +242,20 @@ func (options *InstallOptions) Run() error {
 
 	// configure the helm binary
 	options.Helm().SetHelmBinary(helmBinary)
+	if initOpts.Flags.HelmTemplate {
+		helmer := options.Helm()
+		helmCli, ok := helmer.(*helm.HelmCLI)
+		if ok && helmCli != nil {
+			options.helm = helm.NewHelmTemplate(helmCli, helmCli.CWD, client)
+		} else {
+			helmTemplate, ok := helmer.(*helm.HelmTemplate)
+			if ok {
+				options.helm = helmTemplate
+			} else {
+				log.Warnf("Helm facade is not a *helm.HelmCLI or *helm.HelmTemplate: %#v\n", helmer)
+			}
+		}
+	}
 
 	dependencies := []string{}
 	if !initOpts.Flags.Tiller {
@@ -380,6 +399,19 @@ func (options *InstallOptions) Run() error {
 		if isOpenShiftProvider(options.Flags.Provider) {
 			ecConfig.Exposer = "Route"
 		}
+	}
+
+	if initOpts.Flags.HelmTemplate {
+		callback := func(env *v1.Environment) error {
+			env.Spec.TeamSettings.HelmTemplate = true
+			log.Info("Enabling helm template mode in the TeamSettings\n")
+			return nil
+		}
+		err = options.ModifyDevEnvironment(callback)
+		if err != nil {
+			return err
+		}
+		initOpts.helm = nil
 	}
 
 	if !initOpts.Flags.Tiller {
@@ -859,7 +891,7 @@ func (options *InstallOptions) logAdminPassword() {
 	********************************************************
 	
 	`
-	log.Infof(astrix, fmt.Sprintf("Your admin password is: %s", util.ColorInfo(options.AdminSecretsService.Flags.DefaultAdminPassword)))
+	log.Infof(astrix+"\n", fmt.Sprintf("Your admin password is: %s", util.ColorInfo(options.AdminSecretsService.Flags.DefaultAdminPassword)))
 }
 
 // LoadVersionFromCloudEnvironmentsDir loads a version from the cloud environments directory
@@ -896,6 +928,7 @@ func LoadVersionFromCloudEnvironmentsDir(wrkDir string) (string, error) {
 
 // clones the jenkins-x cloud-environments repo to a local working dir
 func (options *InstallOptions) cloneJXCloudEnvironmentsRepo() (string, error) {
+	surveyOpts := survey.WithStdio(options.In, options.Out, options.Err)
 	configDir, err := util.ConfigDir()
 	if err != nil {
 		return "", fmt.Errorf("error determining config dir %v", err)
@@ -930,7 +963,7 @@ func (options *InstallOptions) cloneJXCloudEnvironmentsRepo() (string, error) {
 					Message: "A local Jenkins X cloud environments repository already exists, recreate with latest?",
 					Default: true,
 				}
-				err := survey.AskOne(confirm, &flag, nil)
+				err := survey.AskOne(confirm, &flag, nil, surveyOpts)
 				if err != nil {
 					return wrkDir, err
 				}
@@ -1075,7 +1108,7 @@ func (options *InstallOptions) getGitUser(message string) (*auth.UserAuth, error
 		kind := gits.SaasGitKind(gitProvider)
 		server = config.GetOrCreateServerName(gitProvider, "", kind)
 	} else {
-		server, err = config.PickServer("Which git provider?", options.BatchMode)
+		server, err = config.PickServer("Which git provider?", options.BatchMode, options.In, options.Out, options.Err)
 		if err != nil {
 			return userAuth, err
 		}
@@ -1085,7 +1118,7 @@ func (options *InstallOptions) getGitUser(message string) (*auth.UserAuth, error
 	if message == "" {
 		message = fmt.Sprintf("%s username for CI/CD pipelines:", server.Label())
 	}
-	userAuth, err = config.PickServerUserAuth(server, message, options.BatchMode, "")
+	userAuth, err = config.PickServerUserAuth(server, message, options.BatchMode, "", options.In, options.Out, options.Err)
 	if err != nil {
 		return userAuth, err
 	}
@@ -1097,7 +1130,7 @@ func (options *InstallOptions) getGitUser(message string) (*auth.UserAuth, error
 
 		// TODO could we guess this based on the users ~/.git for github?
 		defaultUserName := ""
-		err = config.EditUserAuth(server.Label(), userAuth, defaultUserName, false, options.BatchMode, f)
+		err = config.EditUserAuth(server.Label(), userAuth, defaultUserName, false, options.BatchMode, f, options.In, options.Out, options.Err)
 		if err != nil {
 			return userAuth, err
 		}
