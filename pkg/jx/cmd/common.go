@@ -28,6 +28,7 @@ import (
 	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/spf13/cobra"
 	"gopkg.in/AlecAivazis/survey.v1"
+	"gopkg.in/AlecAivazis/survey.v1/terminal"
 	gitcfg "gopkg.in/src-d/go-git.v4/config"
 	"gopkg.in/yaml.v2"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -45,7 +46,8 @@ const (
 // CommonOptions contains common options and helper methods
 type CommonOptions struct {
 	Factory              Factory
-	Out                  io.Writer
+	In                   terminal.FileReader
+	Out                  terminal.FileWriter
 	Err                  io.Writer
 	Cmd                  *cobra.Command
 	Args                 []string
@@ -64,23 +66,11 @@ type CommonOptions struct {
 	currentNamespace    string
 	devNamespace        string
 	jxClient            versioned.Interface
-	jenkinsClient       *gojenkins.Jenkins
+	jenkinsClient       gojenkins.JenkinsClient
 	GitClient           gits.Gitter
 	helm                helm.Helmer
 
 	Prow
-}
-
-// NewCommonOptions a helper method to create a new CommonOptions instance
-// pre configured in a specific devNamespace
-func NewCommonOptions(devNamespace string, factory Factory) CommonOptions {
-	return CommonOptions{
-		Factory:          factory,
-		Out:              os.Stdout,
-		Err:              os.Stderr,
-		currentNamespace: devNamespace,
-		devNamespace:     devNamespace,
-	}
 }
 
 type ServerFlags struct {
@@ -92,15 +82,8 @@ func (f *ServerFlags) IsEmpty() bool {
 	return f.ServerName == "" && f.ServerURL == ""
 }
 
-func (c *CommonOptions) Stdout() io.Writer {
-	if c.Out != nil {
-		return c.Out
-	}
-	return os.Stdout
-}
-
 func (c *CommonOptions) CreateTable() table.Table {
-	return c.Factory.CreateTable(c.Stdout())
+	return c.Factory.CreateTable(c.Out)
 }
 
 // Debugf outputs the given text to the console if verbose mode is enabled
@@ -212,14 +195,14 @@ func (o *CommonOptions) JXClientAndDevNamespace() (versioned.Interface, string, 
 	return o.jxClient, o.devNamespace, nil
 }
 
-func (o *CommonOptions) JenkinsClient() (*gojenkins.Jenkins, error) {
+func (o *CommonOptions) JenkinsClient() (gojenkins.JenkinsClient, error) {
 	if o.jenkinsClient == nil {
 		kubeClient, ns, err := o.KubeClientAndDevNamespace()
 		if err != nil {
 			return nil, err
 		}
 
-		jenkins, err := o.Factory.CreateJenkinsClient(kubeClient, ns)
+		jenkins, err := o.Factory.CreateJenkinsClient(kubeClient, ns, o.In, o.Out, o.Err)
 
 		if err != nil {
 			return nil, err
@@ -246,12 +229,25 @@ func (o *CommonOptions) Git() gits.Gitter {
 
 func (o *CommonOptions) Helm() helm.Helmer {
 	if o.helm == nil {
-		helmBinary, noTiller, err := o.TeamHelmBin()
+		helmBinary, noTiller, helmTemplate, err := o.TeamHelmBin()
 		if err != nil {
 			helmBinary = defaultHelmBin
 		}
-		log.Infof("Using helmBinary %s, with noTiller %s\n", util.ColorInfo(helmBinary), util.ColorInfo(noTiller))
-		o.helm = helm.NewHelmCLI(helmBinary, helm.V2, "", o.Verbose)
+		featureFlag := "none"
+		if helmTemplate {
+			featureFlag = "template-mode"
+		} else if noTiller {
+			featureFlag = "no-tiller-server"
+		}
+		log.Infof("Using helmBinary %s with feature flag: %s\n", util.ColorInfo(helmBinary), util.ColorInfo(featureFlag))
+		helmCLI := helm.NewHelmCLI(helmBinary, helm.V2, "", o.Verbose)
+		o.helm = helmCLI
+		if helmTemplate {
+			kubeClient, _, _ := o.KubeClient()
+			o.helm = helm.NewHelmTemplate(helmCLI, "", kubeClient)
+		} else {
+			o.helm = helmCLI
+		}
 		if noTiller {
 			o.helm.SetHost(o.tillerAddress())
 			o.startLocalTillerIfNotRunning()
@@ -339,7 +335,7 @@ func (o *CommonOptions) findServer(config *auth.AuthConfig, serverFlags *ServerF
 				defaultServerName = s.Name
 			}
 		}
-		name, err := util.PickNameWithDefault(config.GetServerNames(), "Pick server to use: ", defaultServerName)
+		name, err := util.PickNameWithDefault(config.GetServerNames(), "Pick server to use: ", defaultServerName, o.In, o.Out, o.Err)
 		if err != nil {
 			return nil, err
 		}
@@ -373,7 +369,7 @@ func (o *CommonOptions) findService(name string) (string, error) {
 			return "", err
 		}
 		if len(names) > 1 {
-			name, err = util.PickName(names, "Pick service to open: ")
+			name, err = util.PickName(names, "Pick service to open: ", o.In, o.Out, o.Err)
 			if err != nil {
 				return "", err
 			}
@@ -436,7 +432,7 @@ func (o *CommonOptions) findServiceInNamespace(name string, ns string) (string, 
 			return "", err
 		}
 		if len(names) > 1 {
-			name, err = util.PickName(names, "Pick service to open: ")
+			name, err = util.PickName(names, "Pick service to open: ", o.In, o.Out, o.Err)
 			if err != nil {
 				return "", err
 			}
@@ -610,10 +606,12 @@ func (o *CommonOptions) tailBuild(jobName string, build *gojenkins.Build) error 
 	}
 	buildPath := u.Path
 	log.Infof("%s %s\n", "tailing the log of", fmt.Sprintf("%s #%d", jobName, build.Number))
+	// TODO Logger
 	return jenkins.TailLog(buildPath, o.Out, time.Second, time.Hour*100)
 }
 
 func (o *CommonOptions) pickRemoteURL(config *gitcfg.Config) (string, error) {
+	surveyOpts := survey.WithStdio(o.In, o.Out, o.Err)
 	urls := []string{}
 	if config.Remotes != nil {
 		for _, r := range config.Remotes {
@@ -633,7 +631,7 @@ func (o *CommonOptions) pickRemoteURL(config *gitcfg.Config) (string, error) {
 			Message: "Choose a remote git URL:",
 			Options: urls,
 		}
-		err := survey.AskOne(prompt, &url, nil)
+		err := survey.AskOne(prompt, &url, nil, surveyOpts)
 		if err != nil {
 			return "", err
 		}
@@ -714,7 +712,7 @@ func (o *CommonOptions) runExposecontroller(devNamespace, targetNamespace string
 	if err != nil {
 		return fmt.Errorf("failed waiting for exposecontroller job to succeed: %v", err)
 	}
-	return o.helm.DeleteRelease(helmRelease, true)
+	return o.helm.DeleteRelease(targetNamespace, helmRelease, true)
 
 }
 

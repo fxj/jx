@@ -23,6 +23,7 @@ import (
 	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/spf13/cobra"
+	"gopkg.in/AlecAivazis/survey.v1/terminal"
 	"gopkg.in/src-d/go-git.v4/plumbing/object"
 
 	chgit "github.com/jenkins-x/chyle/chyle/git"
@@ -134,11 +135,12 @@ e.g. define environment variables GIT_USERNAME and GIT_API_TOKEN
 	JIRAIssueRegex   = regexp.MustCompile(`[A-Z][A-Z]+-(\d+)`)
 )
 
-func NewCmdStepChangelog(f Factory, out io.Writer, errOut io.Writer) *cobra.Command {
+func NewCmdStepChangelog(f Factory, in terminal.FileReader, out terminal.FileWriter, errOut io.Writer) *cobra.Command {
 	options := StepChangelogOptions{
 		StepOptions: StepOptions{
 			CommonOptions: CommonOptions{
 				Factory: f,
+				In:      in,
 				Out:     out,
 				Err:     errOut,
 			},
@@ -321,7 +323,7 @@ func (o *StepChangelogOptions) Run() error {
 			CreationTimestamp: metav1.Time{
 				Time: time.Now(),
 			},
-			ResourceVersion:   "1",
+			//ResourceVersion:   "1",
 			DeletionTimestamp: &metav1.Time{},
 		},
 		Spec: v1.ReleaseSpec{
