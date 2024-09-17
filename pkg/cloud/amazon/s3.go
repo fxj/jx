@@ -3,24 +3,22 @@ package amazon
 import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/jenkins-x/jx/v2/pkg/cloud/amazon/session"
 )
 
 // CreateS3Bucket creates a new S3 bucket in the default region with the given bucket name
 // returning the location string
-func CreateS3Bucket(bucketName string, region string) (string, error) {
+func CreateS3Bucket(bucketName string, profile string, region string) (string, error) {
 	location := ""
-	sess, defaultRegion, err := NewAwsSession()
+	sess, err := session.NewAwsSession(profile, region)
 	if err != nil {
 		return location, err
-	}
-	if region == "" {
-		region = defaultRegion
 	}
 
 	input := &s3.CreateBucketInput{
 		Bucket: aws.String(bucketName),
 		CreateBucketConfiguration: &s3.CreateBucketConfiguration{
-			LocationConstraint: aws.String(region),
+			LocationConstraint: sess.Config.Region,
 		},
 	}
 	svc := s3.New(sess)

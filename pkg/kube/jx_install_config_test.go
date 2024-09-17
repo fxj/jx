@@ -1,14 +1,16 @@
+// +build unit
+
 package kube_test
 
 import (
 	"errors"
 	"testing"
 
-	"github.com/jenkins-x/jx/pkg/kube"
-	"github.com/jenkins-x/jx/pkg/util"
+	"github.com/jenkins-x/jx/v2/pkg/kube"
+	"github.com/jenkins-x/jx/v2/pkg/util"
 	"github.com/stretchr/testify/assert"
-	"k8s.io/api/core/v1"
 
+	v1 "k8s.io/api/core/v1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	mock "k8s.io/client-go/kubernetes/fake"
@@ -36,7 +38,7 @@ func TestToStringMapStringFromStructJXInstallConfig(t *testing.T) {
 
 	m := util.ToStringMapStringFromStruct(jxInstallConfig)
 
-	assert.Equal(t, 2, len(m))
+	assert.Equal(t, 3, len(m))
 	assert.Equal(t, "derek.zoolander.reallygoodlooking.com", m["server"])
 	assert.Equal(t, "ICAT", m["ca.crt"])
 }
@@ -52,13 +54,13 @@ func TestSaveAsConfigMapExistingCM(t *testing.T) {
 	// Build a config map from our JXInstallConfig struct and a ns string
 	cm := buildConfigMap(jxInstallConfig, ns)
 
-	// Setup mock kubernetes client api (pass objects to set as existing resources)
+	// Setup mock Kubernetes client api (pass objects to set as existing resources)
 	kubernetesInterface := mock.NewSimpleClientset(cm)
 
 	// Run our method
 	_, err := kube.SaveAsConfigMap(kubernetesInterface, kube.ConfigMapNameJXInstallConfig, ns, jxInstallConfig)
 
-	// Get kubernetes client api actions
+	// Get Kubernetes client api actions
 	actions := kubernetesInterface.Actions()
 
 	assert.NoError(t, err)

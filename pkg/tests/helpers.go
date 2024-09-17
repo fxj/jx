@@ -2,21 +2,30 @@ package tests
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"runtime/debug"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/petergtz/pegomock"
+
 	expect "github.com/Netflix/go-expect"
+	"github.com/acarl005/stripansi"
 	"github.com/hinshun/vt10x"
-	"github.com/jenkins-x/jx/pkg/auth"
-	"github.com/jenkins-x/jx/pkg/gits"
-	"github.com/jenkins-x/jx/pkg/log"
-	"github.com/jenkins-x/jx/pkg/util"
+	"github.com/jenkins-x/jx-logging/pkg/log"
+	"github.com/jenkins-x/jx/v2/pkg/auth"
+	auth_test "github.com/jenkins-x/jx/v2/pkg/auth/mocks"
+	"github.com/jenkins-x/jx/v2/pkg/gits"
+	"github.com/jenkins-x/jx/v2/pkg/util"
+	"github.com/stretchr/testify/assert"
 	"gopkg.in/AlecAivazis/survey.v1/terminal"
+)
+
+var (
+	defaultConsoleTimeout = 1 * time.Second
 )
 
 // IsDebugLog debug log?
@@ -27,7 +36,7 @@ func IsDebugLog() bool {
 // Debugf debug format
 func Debugf(message string, args ...interface{}) {
 	if IsDebugLog() {
-		log.Infof(message, args...)
+		log.Logger().Infof(message, args...)
 	}
 }
 
@@ -49,11 +58,8 @@ func TestShouldDisableMaven() bool {
 	return err != nil
 }
 
-// CreateAuthConfigService creates and returns a fixture AuthConfigService
-func CreateAuthConfigService() auth.AuthConfigService {
-	authConfigSvc := auth.AuthConfigService{
-		FileName: "test-auth-config-service",
-	}
+// CreateAuthConfigService creates and returns a fixture ConfigService
+func CreateAuthConfigService() auth.ConfigService {
 	userAuth := auth.UserAuth{
 		Username:    "jx-testing-user",
 		ApiToken:    "someapitoken",
@@ -70,10 +76,13 @@ func CreateAuthConfigService() auth.AuthConfigService {
 	authConfig := auth.AuthConfig{
 		Servers:          []*auth.AuthServer{&authServer},
 		DefaultUsername:  userAuth.Username,
-		PipeLineUsername: userAuth.Username,
 		CurrentServer:    authServer.URL,
-		PipeLineServer:   authServer.URL,
+		PipeLineUsername: "jx-pipeline-user",
+		PipeLineServer:   "https://github.com",
 	}
+	handler := auth_test.NewMockConfigHandler()
+	pegomock.When(handler.LoadConfig()).ThenReturn(&authConfig, nil)
+	authConfigSvc := auth.NewAuthConfigService(handler)
 	authConfigSvc.SetConfig(&authConfig)
 	return authConfigSvc
 }
@@ -88,22 +97,27 @@ func newTerminal(c *expect.Console) *terminal.Stdio {
 }
 
 // NewTerminal mock terminal to control stdin and stdout
-func NewTerminal(t *testing.T) (*expect.Console, *vt10x.State, *terminal.Stdio) {
+func NewTerminal(t assert.TestingT, timeout *time.Duration) *ConsoleWrapper {
 	buf := new(bytes.Buffer)
-	timeout := time.Second * 1
+	if timeout == nil {
+		timeout = &defaultConsoleTimeout
+	}
 	opts := []expect.ConsoleOpt{
-		expectNoTimeoutError(t),
 		sendNoError(t),
 		expect.WithStdout(buf),
-		expect.WithDefaultTimeout(timeout),
+		expect.WithDefaultTimeout(*timeout),
 	}
 
 	c, state, err := vt10x.NewVT10XConsole(opts...)
 	if err != nil {
 		panic(err)
 	}
-	term := newTerminal(c)
-	return c, state, term
+	return &ConsoleWrapper{
+		tester:  t,
+		console: c,
+		state:   state,
+		Stdio:   *newTerminal(c),
+	}
 }
 
 // TestCloser closes io
@@ -114,29 +128,29 @@ func TestCloser(t *testing.T, closer io.Closer) {
 	}
 }
 
-func expectNoTimeoutError(t *testing.T) expect.ConsoleOpt {
-	return expect.WithExpectObserver(
-		func(matcher expect.Matcher, buf string, err error) {
+func sendNoError(t assert.TestingT) expect.ConsoleOpt {
+	return expect.WithSendObserver(
+		func(msg string, n int, err error) {
 			if err != nil {
-				if e, ok := err.(*os.PathError); ok {
-					if e.Timeout() {
-						panic("Test: " + t.Name() + " Timout waiting for Terminal output: " + fmt.Sprintf("%q", buf))
-					}
-				}
+				t.Errorf("Failed to send %q: %s\n%s", msg, err, string(debug.Stack()))
+			}
+			if len(msg) != n {
+				t.Errorf("Only sent %d of %d bytes for %q\n%s", n, len(msg), msg, string(debug.Stack()))
 			}
 		},
 	)
 }
 
-func sendNoError(t *testing.T) expect.ConsoleOpt {
-	return expect.WithSendObserver(
-		func(msg string, n int, err error) {
-			if err != nil {
-				t.Fatalf("Failed to send %q: %s\n%s", msg, err, string(debug.Stack()))
-			}
-			if len(msg) != n {
-				t.Fatalf("Only sent %d of %d bytes for %q\n%s", n, len(msg), msg, string(debug.Stack()))
-			}
-		},
-	)
+// SkipForWindows skips tests if they are running on Windows
+// This is to be used for valid tests that just don't work on windows for whatever reason
+func SkipForWindows(t *testing.T, reason string) {
+	if runtime.GOOS == "windows" {
+		t.Skipf("Test skipped on windows. Reason: %s", reason)
+	}
+}
+
+// ExpectString does the same as the go-expect console.ExpectString method, but also reports failures to the testing object in a sensible format
+func ExpectString(t *testing.T, console *expect.Console, s string) {
+	out, err := console.ExpectString(s)
+	assert.NoError(t, err, "Expected string: %q\nActual string: %q", s, stripansi.Strip(out))
 }

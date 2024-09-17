@@ -11,9 +11,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/jenkins-x/jx/pkg/util"
-	"github.com/jenkins-x/jx/pkg/version"
-	"gopkg.in/AlecAivazis/survey.v1"
+	"github.com/jenkins-x/jx-logging/pkg/log"
+	"github.com/pkg/errors"
+
+	"github.com/jenkins-x/jx/v2/pkg/util"
+	"github.com/jenkins-x/jx/v2/pkg/version"
+	survey "gopkg.in/AlecAivazis/survey.v1"
 )
 
 const (
@@ -27,7 +30,7 @@ const (
 	OptionDependencyKind = "kind"
 	OptionType           = "type"
 
-	startSpringURL = "http://start.spring.io"
+	startSpringURL = "https://start.spring.io"
 )
 
 var (
@@ -90,6 +93,14 @@ type SpringBootForm struct {
 	Dependencies    []string
 	DependencyKinds []string
 	Type            string
+}
+
+type errorResponse struct {
+	Timestamp string `json:"timestamp,omitempty"`
+	Status    int    `json:"status,omitempty"`
+	Error     string `json:"error,omitempty"`
+	Message   string `json:"message,omitempty"`
+	Path      string `json:"path,omitempty"`
 }
 
 func LoadSpringBoot(cacheDir string) (*SpringBootModel, error) {
@@ -338,6 +349,23 @@ func (data *SpringBootForm) CreateProject(workDir string) (string, error) {
 	if err != nil {
 		return answer, err
 	}
+
+	if res.StatusCode == 400 {
+		errorBody, err := ioutil.ReadAll(res.Body)
+		if err != nil {
+			return answer, err
+		}
+
+		errorResponse := errorResponse{}
+		err = json.Unmarshal(errorBody, &errorResponse)
+		if err != nil {
+			return answer, err
+		}
+
+		log.Logger().Infof("%s", util.ColorError(errorResponse.Message))
+		return answer, errors.New("unable to create spring quickstart")
+	}
+
 	body, err := ioutil.ReadAll(res.Body)
 	if err != nil {
 		return answer, err

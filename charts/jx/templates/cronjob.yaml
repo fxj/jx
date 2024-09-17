@@ -20,11 +20,17 @@ spec:
           labels:
             app: {{ template "jx.name" . }}
             release: {{ .Release.Name }}
+    {{- if .Values.podAnnotations }}
+          annotations:
+{{ toYaml .Values.podAnnotations | indent 12 }}
+    {{- end }}
         spec:
     {{- if .Values.restartPolicy }}
           restartPolicy: {{ .Values.restartPolicy }}
     {{- end }}
-    {{- if .Values.serviceaccount.enabled }}
+    {{- if .Values.serviceaccount.customName }}
+          serviceAccountName: {{ .Values.serviceaccount.customName }}
+    {{- else if .Values.serviceaccount.enabled }}
           serviceAccountName: {{ template "jx.fullname" . }}
     {{- end }}
           containers:
@@ -38,18 +44,6 @@ spec:
               {{- end }}
               imagePullPolicy: {{ .Values.image.pullPolicy }}
               image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-              ports:
-                - name: http
-                  containerPort: {{ .Values.internalPort }}
-                  protocol: TCP
-              livenessProbe:
-                httpGet:
-                  path: {{ .Values.probe.path }}
-                  port: http
-              readinessProbe:
-                httpGet:
-                  path: {{ .Values.probe.path }}
-                  port: http
     {{- if .Values.env }}
               env:
     {{- range $pkey, $pval := .Values.env }}

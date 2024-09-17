@@ -7,7 +7,7 @@ import (
 )
 
 // Commander defines the interface for a Command
-//go:generate pegomock generate github.com/jenkins-x/jx/pkg/util Commander -o mocks/commander.go
+//go:generate pegomock generate github.com/jenkins-x/jx/v2/pkg/util Commander -o mocks/commander.go
 type Commander interface {
 	DidError() bool
 	DidFail() bool
@@ -15,8 +15,14 @@ type Commander interface {
 	Run() (string, error)
 	RunWithoutRetry() (string, error)
 	SetName(string)
+	CurrentName() string
 	SetDir(string)
+	CurrentDir() string
 	SetArgs([]string)
+	CurrentArgs() []string
 	SetTimeout(time.Duration)
 	SetExponentialBackOff(*backoff.ExponentialBackOff)
+	SetEnv(map[string]string)
+	CurrentEnv() map[string]string
+	SetEnvVariable(string, string)
 }

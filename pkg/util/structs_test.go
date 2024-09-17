@@ -1,9 +1,11 @@
+// +build unit
+
 package util_test
 
 import (
 	"testing"
 
-	"github.com/jenkins-x/jx/pkg/util"
+	"github.com/jenkins-x/jx/v2/pkg/util"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -130,4 +132,34 @@ func TestToStringMapStringFromStructWithTags(t *testing.T) {
 	assert.Equal(t, "Charls", m["name"])
 	assert.Equal(t, "30", m["Age"])
 	assert.Equal(t, "true", m["awesomeness_is_maxed"])
+}
+
+func TestToGenericMapAndBack(t *testing.T) {
+	t.Parallel()
+
+	s := TestStruct{
+		C: "Sea",
+		InnerStruct: struct {
+			A string
+			B string
+		}{
+			A: "Aye",
+			B: "Bee",
+		},
+	}
+
+	marshalled, err := util.ToMapStringInterfaceFromStruct(s)
+	unmarshalled := TestStruct{}
+	util.ToStructFromMapStringInterface(marshalled, &unmarshalled)
+
+	assert.NoError(t, err)
+	assert.Equal(t, s, unmarshalled)
+}
+
+type TestStruct struct {
+	C           string
+	InnerStruct struct {
+		A string
+		B string
+	}
 }

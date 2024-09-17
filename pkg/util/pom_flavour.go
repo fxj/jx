@@ -6,8 +6,11 @@ import (
 )
 
 const (
-	APPSERVER = "appserver"
-	LIBERTY   = "liberty"
+	MAVEN        = "maven"
+	MAVEN_JAVA11 = "maven-java11"
+	APPSERVER    = "appserver"
+	LIBERTY      = "liberty"
+	DROPWIZARD   = "dropwizard"
 )
 
 func PomFlavour(path string) (string, error) {
@@ -22,10 +25,15 @@ func PomFlavour(path string) (string, error) {
 		strings.Contains(s, "org.eclipse.microprofile") {
 		return LIBERTY, nil
 	}
+	if strings.Contains(s, "<groupId>io.dropwizard") {
+		return DROPWIZARD, nil
+	}
 	if strings.Contains(s, "<groupId>org.apache.tomcat") {
 		return APPSERVER, nil
 	}
+	if strings.Contains(s, "<java.version>11</java.version>") {
+		return MAVEN_JAVA11, nil
+	}
 
-	return "", nil
-
+	return MAVEN, nil
 }

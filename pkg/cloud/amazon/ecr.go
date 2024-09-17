@@ -2,22 +2,30 @@ package amazon
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
+
+	"github.com/jenkins-x/jx/v2/pkg/cloud/amazon/session"
+
+	"github.com/jenkins-x/jx/v2/pkg/kube"
+	"k8s.io/client-go/kubernetes"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ecr"
 	"github.com/aws/aws-sdk-go/service/sts"
-	"github.com/jenkins-x/jx/pkg/log"
-	"github.com/jenkins-x/jx/pkg/util"
+	"github.com/jenkins-x/jx-logging/pkg/log"
+	"github.com/jenkins-x/jx/v2/pkg/util"
 )
 
-// GetAccountID returns the current account ID
-func GetAccountIDAndRegion() (string, string, error) {
-	sess, region, err := NewAwsSession()
+// GetAccountIDAndRegion returns the current account ID and region
+func GetAccountIDAndRegion(profile string, region string) (string, string, error) {
+	sess, err := session.NewAwsSession(profile, region)
+	// We nee to get the region from the connected cluster instead of the one configured for the calling user
+	// as it might not be found and it would then use the default (us-west-2)
+	_, region, err = session.GetCurrentlyConnectedRegionAndClusterName()
 	if err != nil {
-		return "", region, err
+		return "", "", err
 	}
 	svc := sts.New(sess)
 
@@ -33,25 +41,38 @@ func GetAccountIDAndRegion() (string, string, error) {
 	return "", region, fmt.Errorf("Could not find the AWS Account ID!")
 }
 
-func NewAwsSession() (*session.Session, string, error) {
-	config := aws.Config{
-		Region: aws.String(ResolveRegion()),
-	}
-	sess, err := session.NewSession(&config)
-	return sess, *config.Region, err
-}
-
 // GetContainerRegistryHost
 func GetContainerRegistryHost() (string, error) {
-	accountId, region, err := GetAccountIDAndRegion()
+	accountId, region, err := GetAccountIDAndRegion("", "")
 	if err != nil {
 		return "", err
 	}
 	return accountId + ".dkr.ecr." + region + ".amazonaws.com", nil
 }
 
+/*
+Deprecated!
+
+This function is kept for backwards compatibility. AWS region should not be resolved from ECR address, but
+read from ConfigMap (see RememberRegion function). To keep backwards compatibility with existing installations this
+function will be kept for a while and it will perform migration to config map. Eventually it will be removed from a
+codebase.
+*/
+//nolint
+func GetRegionFromContainerRegistryHost(kubeClient kubernetes.Interface, namespace string, dockerRegistry string) string {
+	submatch := regexp.MustCompile(`\.ecr\.(.*)\.amazonaws\.com$`).FindStringSubmatch(dockerRegistry)
+	if len(submatch) > 1 {
+		region := submatch[1]
+		// Migrating jx installations created before AWS region config map
+		kube.RememberRegion(kubeClient, namespace, region)
+		return region
+	} else {
+		return ""
+	}
+}
+
 // LazyCreateRegistry lazily creates the ECR registry if it does not already exist
-func LazyCreateRegistry(orgName string, appName string) error {
+func LazyCreateRegistry(kube kubernetes.Interface, namespace string, region string, dockerRegistry string, orgName string, appName string) error {
 	// strip any tag/version from the app name
 	idx := strings.Index(appName, ":")
 	if idx > 0 {
@@ -62,8 +83,11 @@ func LazyCreateRegistry(orgName string, appName string) error {
 		repoName = orgName + "/" + appName
 	}
 	repoName = strings.ToLower(repoName)
-	log.Infof("Let's ensure that we have an ECR repository for the docker image %s\n", util.ColorInfo(repoName))
-	sess, _, err := NewAwsSession()
+	log.Logger().Infof("Let's ensure that we have an ECR repository for the Docker image %s", util.ColorInfo(repoName))
+	if region == "" {
+		region = GetRegionFromContainerRegistryHost(kube, namespace, dockerRegistry)
+	}
+	sess, err := session.NewAwsSession("", region)
 	if err != nil {
 		return err
 	}
@@ -79,7 +103,7 @@ func LazyCreateRegistry(orgName string, appName string) error {
 	}
 	for _, repo := range result.Repositories {
 		name := repo.String()
-		log.Infof("Found repository: %s\n", name)
+		log.Logger().Infof("Found repository: %s", name)
 		if name == repoName {
 			return nil
 		}
@@ -95,7 +119,12 @@ func LazyCreateRegistry(orgName string, appName string) error {
 	if repo != nil {
 		u := repo.RepositoryUri
 		if u != nil {
-			log.Infof("Created ECR repository: %s\n", util.ColorInfo(*u))
+			if !strings.HasPrefix(*u, dockerRegistry) {
+				log.Logger().Warnf("Created ECR repository (%s) doesn't match registry configured for team (%s)",
+					util.ColorInfo(*u), util.ColorInfo(dockerRegistry))
+			} else {
+				log.Logger().Infof("Created ECR repository: %s", util.ColorInfo(*u))
+			}
 		}
 	}
 	return nil

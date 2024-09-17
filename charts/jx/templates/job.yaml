@@ -8,6 +8,10 @@ metadata:
     chart: {{ template "jx.chart" . }}
     release: {{ .Release.Name }}
     heritage: {{ .Release.Service }}
+{{- if .Values.job.annotations }}
+  annotations:
+{{ toYaml .Values.job.annotations | indent 4 }}
+{{- end }}
 spec:
   backoffLimit: {{ .Values.backoffLimit }}
   activeDeadlineSeconds: {{ .Values.activeDeadlineSeconds }}
@@ -16,9 +20,18 @@ spec:
       labels:
         app: {{ template "jx.name" . }}
         release: {{ .Release.Name }}
+{{- if .Values.podAnnotations }}
+      annotations:
+{{ toYaml .Values.podAnnotations | indent 8 }}
+{{- end }}
     spec:
 {{- if .Values.restartPolicy }}
       restartPolicy: {{ .Values.restartPolicy }}
+{{- end }}
+{{- if .Values.serviceaccount.customName }}
+      serviceAccountName: {{ .Values.serviceaccount.customName }}
+{{- else if .Values.serviceaccount.enabled }}
+      serviceAccountName: {{ template "jx.fullname" . }}
 {{- end }}
       containers:
         - name: {{ .Chart.Name }}
@@ -35,6 +48,7 @@ spec:
             - name: http
               containerPort: {{ .Values.internalPort }}
               protocol: TCP
+{{- if .Values.probe.path }}
           livenessProbe:
             httpGet:
               path: {{ .Values.probe.path }}
@@ -43,6 +57,7 @@ spec:
             httpGet:
               path: {{ .Values.probe.path }}
               port: http
+{{- end }}
 {{- if .Values.env }}
           env:
 {{- range $pkey, $pval := .Values.env }}

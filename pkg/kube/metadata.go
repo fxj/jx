@@ -1,19 +1,20 @@
 package kube
 
-import "strconv"
+import (
+	"strconv"
 
-// MergeMaps merges all the maps together with the entries in the last map overwriting any earlier values
-//
-// so if you want to add some annotations to a resource you can do
-// resource.Annotations = kube.MergeMaps(resource.Annotations, myAnnotations)
-func MergeMaps(maps ...map[string]string) map[string]string {
-	answer := map[string]string{}
-	for _, m := range maps {
-		for k, v := range m {
-			answer[k] = v
-		}
-	}
-	return answer
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// ObjectReference represents a reference to a k8s resource
+type ObjectReference struct {
+	APIVersion string `json:"apiVersion" protobuf:"bytes,5,opt,name=apiVersion"`
+	// Kind of the referent.
+	// More info: https://git.k8s.io/community/contributors/devel/api-conventions.md#types-kinds
+	Kind string `json:"kind" protobuf:"bytes,1,opt,name=kind"`
+	// Name of the referent.
+	// More info: http://kubernetes.io/docs/user-guide/identifiers#names
+	Name string `json:"name" protobuf:"bytes,3,opt,name=name"`
 }
 
 // IsResourceVersionNewer returns true if the first resource version is newer than the second
@@ -34,4 +35,13 @@ func IsResourceVersionNewer(v1 string, v2 string) bool {
 		return false
 	}
 	return i1 > i2
+}
+
+// CreateObjectReference create an ObjectReference from the typed and object meta stuff
+func CreateObjectReference(t metav1.TypeMeta, o metav1.ObjectMeta) ObjectReference {
+	return ObjectReference{
+		APIVersion: t.APIVersion,
+		Kind:       t.Kind,
+		Name:       o.Name,
+	}
 }

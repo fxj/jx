@@ -4,8 +4,8 @@ import (
 	"strings"
 
 	"github.com/beevik/etree"
-	"github.com/jenkins-x/jx/pkg/auth"
-	"github.com/jenkins-x/jx/pkg/gits"
+	"github.com/jenkins-x/jx/v2/pkg/auth"
+	"github.com/jenkins-x/jx/v2/pkg/gits"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -21,7 +21,7 @@ const (
     <com.cloudbees.jenkins.plugins.bitbucket.endpoints.BitbucketEndpointConfiguration plugin="cloudbees-bitbucket-branch-source@2.2.10"/>`
 )
 
-// UpdateJenkinsGitServers update the Jenkins ConfigMap with any missing git server configurations for the given server and token
+// UpdateJenkinsGitServers update the Jenkins ConfigMap with any missing Git server configurations for the given server and token
 func UpdateJenkinsGitServers(cm *corev1.ConfigMap, server *auth.AuthServer, userAuth *auth.UserAuth, credentials string) (bool, error) {
 	if gits.IsGitHubServerURL(server.URL) {
 		return false, nil
